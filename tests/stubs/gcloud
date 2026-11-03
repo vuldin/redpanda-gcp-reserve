@@ -1,0 +1,70 @@
+#!/usr/bin/env bash
+# Fake gcloud for tests. Nothing here talks to GCP.
+#
+# Reservations are files in $STUB_STATE. Env knobs:
+#   STUB_CPU_FREE, STUB_SSD_FREE  free regional quota (default: plenty)
+#   STUB_STOCKOUTS=N              each zone's first N creates fail with a stockout
+#   STUB_CREATE_ERROR=1           creates fail with a non-stockout error
+#   STUB_NO_AUTH=1                credentials are expired
+set -u
+: "${STUB_STATE:?STUB_STATE must be set}"
+args="$*"
+
+flag() { # value of --name=value in the args
+  local f
+  for f in $args; do case "$f" in "--$1="*) echo "${f#--"$1"=}"; return ;; esac; done
+}
+
+case "$args" in
+  "compute reservations create --help")
+    echo "  --local-ssd=[count=COUNT],[interface=INTERFACE],[size=SIZE]" ;;
+  version*)
+    echo "Google Cloud SDK 999.0.0 (stub)" ;;
+  "config get-value account")
+    echo "tester@example.com" ;;
+  "projects describe"*)
+    if [ "${STUB_NO_AUTH:-0}" = 1 ]; then
+      echo "ERROR: (gcloud.projects.describe) There was a problem refreshing your current auth tokens: Reauthentication failed." >&2
+      exit 1
+    fi
+    echo "${2:-project}" ;;
+  "services list"*)
+    echo "compute.googleapis.com" ;;
+  "auth print-access-token")
+    echo "stub-token" ;;
+  "compute zones describe"*)
+    echo "UP" ;;
+  "compute machine-types describe"*)
+    mt="$4"; cpus="${mt##*-}"
+    echo "$cpus" ;;
+  "compute regions describe"*)
+    echo "N2D_CPUS,${STUB_CPU_FREE:-10000},0"
+    echo "LOCAL_SSD_TOTAL_GB,${STUB_SSD_FREE:-1000000},0" ;;
+  "compute reservations describe"*)
+    name="$4"
+    [ -f "$STUB_STATE/$name" ] || exit 1
+    cat "$STUB_STATE/$name" ;;
+  "compute reservations list"*)
+    : ;;
+  "compute reservations create"*)
+    name="$4"; count=$(flag vm-count); mt=$(flag machine-type)
+    if [ "${STUB_CREATE_ERROR:-0}" = 1 ]; then
+      echo "ERROR: (gcloud.compute.reservations.create) Invalid value for field 'resource.specificReservation': bad request" >&2
+      exit 1
+    fi
+    tries_file="$STUB_STATE/.tries-$name"
+    tries=$(( $(cat "$tries_file" 2>/dev/null || echo 0) + 1 ))
+    echo "$tries" > "$tries_file"
+    if [ "$tries" -le "${STUB_STOCKOUTS:-0}" ]; then
+      echo "ERROR: (gcloud.compute.reservations.create) Could not fetch resource:" >&2
+      echo " - code: ZONE_RESOURCE_POOL_EXHAUSTED_WITH_DETAILS" >&2
+      exit 1
+    fi
+    echo "$count	$count	0	$mt	16" > "$STUB_STATE/$name"
+    echo "Created [$name]." ;;
+  "compute reservations delete"*)
+    rm -f "$STUB_STATE/$4" ;;
+  *)
+    echo "stub gcloud: unhandled: $args" >&2
+    exit 99 ;;
+esac

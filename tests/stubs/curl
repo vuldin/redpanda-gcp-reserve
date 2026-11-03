@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Fake curl for tests: answers testIamPermissions with every permission granted,
+# or with none when STUB_NO_PERMS=1.
+if [ "${STUB_NO_PERMS:-0}" = 1 ]; then
+  echo '{}'
+else
+  echo '{"permissions":["compute.reservations.create","compute.reservations.get","compute.reservations.list","compute.reservations.delete"]}'
+fi
