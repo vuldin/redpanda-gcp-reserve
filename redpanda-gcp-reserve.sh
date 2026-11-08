@@ -154,8 +154,12 @@ res_name() { echo "$PREFIX-${1##*-}"; }   # us-central1-c -> redpanda-tier5-c
 # line; run_create runs them. All three read the same list, so they can't drift.
 create_args() {
   printf '%s\n' compute reservations create "$(res_name "$1")" \
-    "--project=$PROJECT" "--zone=$1" "--vm-count=$VM_COUNT" "--machine-type=$MACHINE_TYPE" \
-    "--local-ssd=count=$SSD_COUNT,size=$SSD_SIZE,interface=$SSD_INTERFACE"
+    "--project=$PROJECT" "--zone=$1" "--vm-count=$VM_COUNT" "--machine-type=$MACHINE_TYPE"
+  # gcloud rejects --local-ssd=count=0, so a VM shape without local SSDs (for example one
+  # that uses persistent disks) leaves the flag out.
+  if [ "$SSD_COUNT" -gt 0 ]; then
+    printf '%s\n' "--local-ssd=count=$SSD_COUNT,size=$SSD_SIZE,interface=$SSD_INTERFACE"
+  fi
 }
 create_cmd() { echo "gcloud $(create_args "$1" | tr '\n' ' ' | sed 's/ $//')"; }
 run_create() {
@@ -179,7 +183,11 @@ print_spec() {
   echo "Reservation spec"
   echo "  project        $PROJECT"
   echo "  zones          $ZONE_LIST"
-  echo "  per zone       $VM_COUNT x $MACHINE_TYPE, $SSD_COUNT x ${SSD_SIZE} GB local SSD ($SSD_INTERFACE)"
+  if [ "$SSD_COUNT" -gt 0 ]; then
+    echo "  per zone       $VM_COUNT x $MACHINE_TYPE, $SSD_COUNT x ${SSD_SIZE} GB local SSD ($SSD_INTERFACE)"
+  else
+    echo "  per zone       $VM_COUNT x $MACHINE_TYPE, no local SSD"
+  fi
   echo "  total          $((VM_COUNT * NUM_ZONES)) VMs"
   echo "  consumption    automatic (any matching VM in the project can use it)"
   echo
@@ -194,7 +202,9 @@ preflight() {
     fail "gcloud not found in PATH (https://cloud.google.com/sdk/docs/install)"
     return
   fi
-  if gcloud compute reservations create --help 2>/dev/null | grep -q 'local-ssd=\[count=COUNT\]'; then
+  if [ "$SSD_COUNT" -eq 0 ]; then
+    pass "no local SSDs requested ($(gcloud version 2>/dev/null | head -1))"
+  elif gcloud compute reservations create --help 2>/dev/null | grep -q 'local-ssd=\[count=COUNT\]'; then
     pass "gcloud supports --local-ssd=count=… ($(gcloud version 2>/dev/null | head -1))"
   else
     fail "this gcloud doesn't support --local-ssd=count=…; run: gcloud components update"
@@ -292,7 +302,9 @@ preflight() {
       fi
     }
     check_quota "$cpu_metric" "$guest_cpus" "vCPUs"
-    check_quota "LOCAL_SSD_TOTAL_GB" "$per_ssd" "GB"
+    if [ "$SSD_COUNT" -gt 0 ]; then
+      check_quota "LOCAL_SSD_TOTAL_GB" "$per_ssd" "GB"
+    fi
   fi
 
   # existing reservations
@@ -348,6 +360,11 @@ try_create() {
     return 2
   fi
   printf '%s\n' "$out" | sed 's/^/    /'
+  if echo "$out" | grep -q 'RESERVATION_CAPACITY_LIMIT_EXCEEDED'; then
+    echo "    hint: GCP refuses a new reservation in a zone where matching VMs already run and it"
+    echo "          has no spare reservation capacity for the machine family. Reserve before the VMs"
+    echo "          exist (before the cluster is created or the tier changes), or use another zone."
+  fi
   return 1
 }
 

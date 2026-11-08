@@ -48,6 +48,17 @@ case "$args" in
     : ;;
   "compute reservations create"*)
     name="$4"; count=$(flag vm-count); mt=$(flag machine-type)
+    case "$args" in
+      *--local-ssd=count=0*)
+        echo "ERROR: (gcloud.compute.reservations.create) Invalid value for [--local-ssd]: Must specify a valid count (>= 1) for SSDs attached to the reservation." >&2
+        exit 1 ;;
+    esac
+    ssds=$(printf '%s\n' "$args" | sed -n 's/.*--local-ssd=count=\([0-9]*\).*/\1/p'); ssds=${ssds:-0}
+    if [ "${STUB_CREATE_ERROR:-0}" = capacity ]; then
+      echo "ERROR: (gcloud.compute.reservations.create) Could not fetch resource:" >&2
+      echo " - Failed to reserve additional capacity for '$mt' because reservation capacity limit exceeded in '$(flag zone)'. Select a different machine family or zone. (Category: RESERVATION_CAPACITY_LIMIT_EXCEEDED)" >&2
+      exit 1
+    fi
     if [ "${STUB_CREATE_ERROR:-0}" = 1 ]; then
       echo "ERROR: (gcloud.compute.reservations.create) Invalid value for field 'resource.specificReservation': bad request" >&2
       exit 1
@@ -60,7 +71,7 @@ case "$args" in
       echo " - code: ZONE_RESOURCE_POOL_EXHAUSTED_WITH_DETAILS" >&2
       exit 1
     fi
-    echo "$count	$count	0	$mt	16" > "$STUB_STATE/$name"
+    echo "$count	$count	0	$mt	$ssds" > "$STUB_STATE/$name"
     echo "Created [$name]." ;;
   "compute reservations delete"*)
     rm -f "$STUB_STATE/$4" ;;

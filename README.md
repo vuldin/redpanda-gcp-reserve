@@ -73,7 +73,7 @@ Pass the same `--region`, `--zones` and `--prefix` to every subcommand, because 
 | `--zones LIST` | `a,b,c` | Comma-separated zone suffixes (`a,b,c`) or full names (`us-east4-a`) |
 | `--vm-count N` | `2` | VMs to reserve per zone |
 | `--machine-type TYPE` | `n2d-standard-16` | Machine type of the tier's nodes |
-| `--ssd-count N` | `16` | Local SSDs per VM |
+| `--ssd-count N` | `16` | Local SSDs per VM. Use `0` for VMs without local SSD (for example persistent-disk brokers); the reservation then has no `--local-ssd` |
 | `--ssd-size GB` | `375` | Size of each local SSD |
 | `--ssd-interface IF` | `nvme` | `nvme` or `scsi` |
 | `--prefix NAME` | `redpanda-tier5` | Reservation names are `<prefix>-<zone suffix>` |
