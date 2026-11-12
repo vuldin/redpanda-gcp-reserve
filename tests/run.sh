@@ -92,6 +92,22 @@ run create "${P[@]}" --retry-interval 0
 expect_rc     "non-stockout error exits 1" 1
 expect_out    "says it won't retry" "not retrying"
 
+setup; export STUB_CREATE_ERROR=capacity
+run create "${P[@]}" --zones a --retry-interval 0
+expect_rc     "reservation capacity limit exits 1" 1
+expect_out    "explains the capacity limit" "Reserve before the VMs"
+
+echo "no local SSD (--ssd-count 0)"
+setup
+run check "${P[@]}" --zones a --ssd-count 0
+expect_rc     "check passes with no local SSD" 0
+expect_out    "spec says no local SSD" "no local SSD"
+expect_no_out "no local SSD quota check" "LOCAL_SSD_TOTAL_GB"
+expect_no_out "planned command has no --local-ssd" "--local-ssd"
+run create "${P[@]}" --zones a --ssd-count 0 --retry-interval 0
+expect_rc     "create with --ssd-count 0 exits 0" 0
+expect_files  "one reservation exists" 1
+
 echo "status / delete"
 setup
 run status "${P[@]}"
